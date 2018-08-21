@@ -14,6 +14,7 @@ if(CMAKE_BUILD_TYPE STREQUAL Debug)
     endif()
 else()
 endif(CMAKE_BUILD_TYPE STREQUAL Debug)
+set(CMAKE_C_VISIBILITY_PRESET hidden)
 
 include_directories(.)
 
