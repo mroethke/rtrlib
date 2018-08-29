@@ -12,7 +12,7 @@
 #include <string.h>
 
 #include "alloc_utils.h"
-
+#include "alloc_utils_public.h"
 #include "rtrlib/rtrlib_export.h"
 
 static void *(*MALLOC_PTR)(size_t size) = malloc;

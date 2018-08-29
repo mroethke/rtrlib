@@ -12,17 +12,7 @@
 
 #include <stdlib.h>
 
-/**
- * @brief Sets custom malloc, realloc and free function
- * that is used throughout rtrlib.
- * @param[in] Pointer to malloc function
- * @param[in] Pointer to realloc function
- * @param[in] Pointer to free function
- */
-void lrtr_set_alloc_functions(
-		void *(*malloc_function)(size_t size),
-		void *(*realloc_function)(void *ptr, size_t size),
-		void (*free_function)(void *ptr));
+#include "alloc_utils_public.h"
 
 void *lrtr_malloc(size_t size);
 

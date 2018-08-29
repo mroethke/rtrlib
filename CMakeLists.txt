@@ -100,8 +100,10 @@ install(TARGETS rtrlib LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/)
 
 #install includes
 install(DIRECTORY rtrlib/ DESTINATION include/rtrlib
-    FILES_MATCHING PATTERN "*.h"
+    FILES_MATCHING PATTERN "*_public.h"
     PATTERN rtrlib/rtr_mgr. EXCLUDE)
+install(FILES rtrlib/rtrlib.h
+    DESTINATION include/rtrlib)
 
 #pkgconfig file
 if(LIBSSH_FOUND)

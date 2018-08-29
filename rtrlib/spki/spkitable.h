@@ -18,12 +18,8 @@
 #define RTR_SPKI_H
 
 #include <stdint.h>
-#include <sys/types.h>
-#include "rtrlib/lib/ip.h"
-#include "rtrlib/rtr/rtr.h"
 
-#define SKI_SIZE 20
-#define SPKI_SIZE 91
+#include "rtrlib/spki/spkitable_public.h"
 
 /**
  * @brief Possible return values for some spki_table_ functions.
@@ -42,32 +38,6 @@ enum spki_rtvals {
 	SPKI_RECORD_NOT_FOUND = -3
 };
 
-struct spki_table;
-
-/**
- * @brief spki_record.
- * @param ski Subject Key Identifier
- * @param asn Origin AS number
- * @param spki Subject public key info
- * @param socket Pointer to the rtr_socket this spki_record was received in
- */
-struct spki_record {
-	uint8_t ski[SKI_SIZE];
-	uint32_t asn;
-	uint8_t spki[SPKI_SIZE];
-	const struct rtr_socket *socket;
-};
-
-/**
- * @brief A function pointer that is called if an record was added
- * to the spki_table or was removed from the spki_table.
- * @param spki_table which was updated.
- * @param record spki_record that was modified.
- * @param added True if the record was added, false if the record was removed.
- */
-typedef void (*spki_update_fp)(struct spki_table *spki_table,
-			       const struct spki_record record,
-			       const bool added);
 
 /**
  * @brief Initializes the spki_table struct.

@@ -10,18 +10,11 @@
 #ifndef LRTR_IPV4_H
 #define LRTR_IPV4_H
 
-#include "rtrlib/lib/convert_byte_order.h"
-
 #include <inttypes.h>
 #include <stdbool.h>
 
-/**
- * @brief Struct storing an IPv4 address in host byte order.
- * @param addr The IPv4 address.
- */
-struct lrtr_ipv4_addr {
-	uint32_t addr;
-};
+#include "rtrlib/lib/ipv4_public.h"
+#include "rtrlib/lib/convert_byte_order.h"
 
 /**
  * @brief Extracts number bits from the passed ipv4_addr,

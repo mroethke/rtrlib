@@ -10,18 +10,12 @@
 #ifndef LRTR_IPV6_H
 #define LRTR_IPV6_H
 
-#include "rtrlib/lib/convert_byte_order.h"
-
 #include <sys/types.h>
 #include <stdbool.h>
 #include <stdint.h>
 
-/**
- * @brief Struct holding an IPv6 address in host byte order.
- */
-struct lrtr_ipv6_addr {
-	uint32_t addr[4];	/**< The IPv6 address. */
-};
+#include "rtrlib/lib/convert_byte_order.h"
+#include "rtrlib/lib/ipv6_public.h"
 
 /**
  * @brief Compares two lrtr_ipv6_addr structs
