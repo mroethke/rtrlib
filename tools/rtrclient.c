@@ -29,6 +29,20 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#ifdef RTRLIB_HAVE_LIBSSH
+// constants for utf8 validation
+static const uint8_t UTF8_ONE_BYTE_PREFIX = 0b00000000;
+static const uint8_t UTF8_ONE_BYTE_MASK = 0b10000000;
+static const uint8_t UTF8_TWO_BYTE_PREFIX = 0b11000000;
+static const uint8_t UTF8_TWO_BYTE_MASK = 0b11100000;
+static const uint8_t UTF8_THREE_BYTE_PREFIX = 0b11100000;
+static const uint8_t UTF8_THREE_BYTE_MASK = 0b11110000;
+static const uint8_t UTF8_FOUR_BYTE_PREFIX = 0b11110000;
+static const uint8_t UTF8_FOUR_BYTE_MASK = 0b11111000;
+static const uint8_t UTF8_SUBSEQUENT_BYTE_PREFIX = 0b10000000;
+static const uint8_t UTF8_SUBSEQUENT_BYTE_MASK = 0b11000000;
+#endif
+
 __attribute__((format(printf, 1, 2), noreturn)) static void print_error_exit(const char *fmt, ...);
 
 static bool is_readable_file(const char *str);
@@ -53,6 +67,9 @@ struct socket_config {
 	char *ssh_username;
 	char *ssh_private_key;
 	char *ssh_host_key;
+	char *ssh_password;
+	bool force_password;
+	bool force_key;
 #endif
 };
 
@@ -229,6 +246,45 @@ static bool is_readable_file(const char *str)
 
 	return is_file(str);
 }
+
+#ifdef RTRLIB_HAVE_LIBSSH
+static bool is_utf8(const char *str)
+{
+	size_t len = strlen(str);
+
+	for (size_t i = 0; i <= len; ++i) {
+		// check if current byte is a single utf char
+		if ((str[i] & UTF8_ONE_BYTE_MASK) == UTF8_ONE_BYTE_PREFIX) {
+			continue;
+
+			// check if current byte is the start of a two byte utf8 char and validate subsequent bytes
+		} else if ((str[i] & UTF8_TWO_BYTE_MASK) == UTF8_TWO_BYTE_PREFIX && i + 1 < len &&
+			   (str[i + 1] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX) {
+			i += 1;
+			continue;
+
+			// check if current byte is the start of a three byte utf8 char and validate subsequent bytes
+		} else if ((str[i] & UTF8_THREE_BYTE_MASK) == UTF8_THREE_BYTE_PREFIX && i + 2 < len &&
+			   (str[i + 1] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX &&
+			   (str[i + 2] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX) {
+			i += 2;
+			continue;
+
+			// check if current byte is the start of a four byte utf8 char and validate subsequent bytes
+		} else if ((str[i] & UTF8_FOUR_BYTE_MASK) == UTF8_FOUR_BYTE_PREFIX && i + 3 < len &&
+			   (str[i + 1] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX &&
+			   (str[i + 2] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX &&
+			   (str[i + 3] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX) {
+			i += 3;
+			continue;
+		}
+
+		// if none of the conditions matched. The string contains at least one character that are not valid utf8
+		return false;
+	}
+	return true;
+}
+#endif
 
 struct exporter_state {
 	bool roa_section;
@@ -536,7 +592,7 @@ static void parse_socket_opts(int argc, char **argv, struct socket_config *confi
 {
 	int opt;
 
-	while ((opt = getopt(argc, argv, "+kphb:")) != -1) {
+	while ((opt = getopt(argc, argv, "+kphwsb:")) != -1) {
 		switch (opt) {
 		case 'k':
 			activate_spki_update_cb = true;
@@ -551,6 +607,22 @@ static void parse_socket_opts(int argc, char **argv, struct socket_config *confi
 		case 'b':
 			config->bindaddr = optarg;
 			break;
+
+#ifdef RTRLIB_HAVE_LIBSSH
+		case 'w':
+			if (config->force_key)
+				print_error_exit("-w and -s are mutually exclusive");
+
+			config->force_password = true;
+			break;
+
+		case 's':
+			if (config->force_password)
+				print_error_exit("-w and -s are mutually exclusive");
+
+			config->force_key = true;
+			break;
+#endif
 
 		default:
 			print_usage(argv);
@@ -590,7 +662,7 @@ static int parse_cli(int argc, char **argv)
 		CLI_PARSE_STATE_SOCKET_SSH_HOST,
 		CLI_PARSE_STATE_SOCKET_SSH_PORT,
 		CLI_PARSE_STATE_SOCKET_SSH_USERNAME,
-		CLI_PARSE_STATE_SOCKET_SSH_PRIVATE_KEY,
+		CLI_PARSE_STATE_SOCKET_SSH_PRIVATE_KEY_PASSWORD,
 		CLI_PARSE_STATE_SOCKET_SSH_HOST_KEY,
 #endif
 		CLI_PARSE_STATE_END,
@@ -714,15 +786,36 @@ static int parse_cli(int argc, char **argv)
 		case CLI_PARSE_STATE_SOCKET_SSH_USERNAME:
 			current_config->ssh_username = argv[optind++];
 
-			state = CLI_PARSE_STATE_SOCKET_SSH_PRIVATE_KEY;
+			state = CLI_PARSE_STATE_SOCKET_SSH_PRIVATE_KEY_PASSWORD;
 			break;
 
-		case CLI_PARSE_STATE_SOCKET_SSH_PRIVATE_KEY:
-			if (!is_readable_file(argv[optind]))
+		case CLI_PARSE_STATE_SOCKET_SSH_PRIVATE_KEY_PASSWORD:
+			if (current_config->force_key && !is_readable_file(argv[optind])) {
 				print_error_exit("\"%s\" is not a readable file\n", argv[optind]);
 
-			current_config->ssh_private_key = argv[optind++];
+			} else if (!current_config->force_password && !current_config->force_key &&
+				   is_readable_file(argv[optind])) {
+				current_config->ssh_private_key = argv[optind];
 
+			} else if (!current_config->force_password && is_utf8(argv[optind])) {
+				fprintf(stderr, "\"%s\" does not seem to be a file. Trying password authentication.\n",
+					argv[optind]);
+				fprintf(stderr, "Use -s to force key authentication or -w to silence this warning");
+				current_config->ssh_password = argv[optind];
+
+			} else if (current_config->force_password && !is_utf8(argv[optind])) {
+				print_error_exit("\"%s\" is not a valid utf8 string", argv[optind]);
+
+			} else if (current_config->force_password && !current_config->force_key &&
+				   is_utf8(argv[optind])) {
+				current_config->ssh_password = argv[optind];
+
+			} else {
+				print_error_exit("\"%s\" is neither a readable file nor a valid utf8 string",
+						 argv[optind]);
+			}
+
+			++optind;
 			state = CLI_PARSE_STATE_SOCKET_SSH_HOST_KEY;
 			break;
 
@@ -778,6 +871,7 @@ static void init_sockets(void)
 			ssh_config.username = config->ssh_username;
 			ssh_config.client_privkey_path = config->ssh_private_key;
 			ssh_config.server_hostkey_path = config->ssh_host_key;
+			ssh_config.password = config->ssh_password;
 
 			tr_ssh_init(&ssh_config, &config->tr_socket);
 			config->socket.tr_socket = &config->tr_socket;
