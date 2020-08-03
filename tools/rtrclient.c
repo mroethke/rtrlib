@@ -253,24 +253,24 @@ static bool is_utf8(const char *str)
 	size_t len = strlen(str);
 
 	for (size_t i = 0; i <= len; ++i) {
-		// check if current byte is a single utf char
+		// check if current byte is a single utf8 char
 		if ((str[i] & UTF8_ONE_BYTE_MASK) == UTF8_ONE_BYTE_PREFIX) {
 			continue;
 
-			// check if current byte is the start of a two byte utf8 char and validate subsequent bytes
+		// check if current byte is the start of a two byte utf8 char and validate subsequent bytes
 		} else if ((str[i] & UTF8_TWO_BYTE_MASK) == UTF8_TWO_BYTE_PREFIX && i + 1 < len &&
 			   (str[i + 1] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX) {
 			i += 1;
 			continue;
 
-			// check if current byte is the start of a three byte utf8 char and validate subsequent bytes
+		// check if current byte is the start of a three byte utf8 char and validate subsequent bytes
 		} else if ((str[i] & UTF8_THREE_BYTE_MASK) == UTF8_THREE_BYTE_PREFIX && i + 2 < len &&
 			   (str[i + 1] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX &&
 			   (str[i + 2] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX) {
 			i += 2;
 			continue;
 
-			// check if current byte is the start of a four byte utf8 char and validate subsequent bytes
+		// check if current byte is the start of a four byte utf8 char and validate subsequent bytes
 		} else if ((str[i] & UTF8_FOUR_BYTE_MASK) == UTF8_FOUR_BYTE_PREFIX && i + 3 < len &&
 			   (str[i + 1] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX &&
 			   (str[i + 2] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX &&
@@ -279,7 +279,7 @@ static bool is_utf8(const char *str)
 			continue;
 		}
 
-		// if none of the conditions matched. The string contains at least one character that are not valid utf8
+		// if none of the conditions matched. The string contains at least one character that is not valid utf8
 		return false;
 	}
 	return true;
