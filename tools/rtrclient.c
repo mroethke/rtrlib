@@ -251,36 +251,36 @@ static bool is_readable_file(const char *str)
 static bool is_utf8(const char *str)
 {
 	size_t len = strlen(str);
+	size_t i = 0;
 
-	for (size_t i = 0; i <= len; ++i) {
+	while (i < len) {
 		// check if current byte is a single utf8 char
 		if ((str[i] & UTF8_ONE_BYTE_MASK) == UTF8_ONE_BYTE_PREFIX) {
-			continue;
+			i += 1;
 
 		// check if current byte is the start of a two byte utf8 char and validate subsequent bytes
 		} else if ((str[i] & UTF8_TWO_BYTE_MASK) == UTF8_TWO_BYTE_PREFIX && i + 1 < len &&
 			   (str[i + 1] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX) {
-			i += 1;
-			continue;
+			i += 2;
 
 		// check if current byte is the start of a three byte utf8 char and validate subsequent bytes
 		} else if ((str[i] & UTF8_THREE_BYTE_MASK) == UTF8_THREE_BYTE_PREFIX && i + 2 < len &&
 			   (str[i + 1] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX &&
 			   (str[i + 2] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX) {
-			i += 2;
-			continue;
+			i += 3;
 
 		// check if current byte is the start of a four byte utf8 char and validate subsequent bytes
 		} else if ((str[i] & UTF8_FOUR_BYTE_MASK) == UTF8_FOUR_BYTE_PREFIX && i + 3 < len &&
 			   (str[i + 1] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX &&
 			   (str[i + 2] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX &&
 			   (str[i + 3] & UTF8_SUBSEQUENT_BYTE_MASK) == UTF8_SUBSEQUENT_BYTE_PREFIX) {
-			i += 3;
-			continue;
-		}
+			i += 4;
 
-		// if none of the conditions matched. The string contains at least one character that is not valid utf8
-		return false;
+		// if none of the conditions matched. The string contains at least one byte that is not valid utf8
+		} else {
+
+			return false;
+		}
 	}
 	return true;
 }
@@ -415,10 +415,15 @@ static void print_usage(char **argv)
 	printf("\nSocket:\n");
 	printf(" tcp [-hpkb bindaddr] <host> <port>\n");
 #ifdef RTRLIB_HAVE_LIBSSH
-	printf(" ssh [-hpkb bindaddr] <host> <port> <username> <private_key> [<host_key>]\n");
+	printf(" ssh [-hpkb bindaddr] <host> <port> <username> (<private_key> | <password>) [<host_key>]\n");
 #endif
 	printf("\nOptions:\n");
 	printf("-b  bindaddr Hostnamne or IP address to connect from\n\n");
+
+#ifdef RTRLIB_HAVE_LIBSSH
+	printf("-w  force ssh authentication information to be interpreted as a password\n");
+	printf("-r  force ssh authentication information to be interpreted as a private key\n\n");
+#endif
 
 	printf("-k  Print information about SPKI updates.\n");
 	printf("-p  Print information about PFX updates.\n");
@@ -592,7 +597,7 @@ static void parse_socket_opts(int argc, char **argv, struct socket_config *confi
 {
 	int opt;
 
-	while ((opt = getopt(argc, argv, "+kphwsb:")) != -1) {
+	while ((opt = getopt(argc, argv, "+kphwrb:")) != -1) {
 		switch (opt) {
 		case 'k':
 			activate_spki_update_cb = true;
@@ -611,14 +616,14 @@ static void parse_socket_opts(int argc, char **argv, struct socket_config *confi
 #ifdef RTRLIB_HAVE_LIBSSH
 		case 'w':
 			if (config->force_key)
-				print_error_exit("-w and -s are mutually exclusive");
+				print_error_exit("-w and -r are mutually exclusive");
 
 			config->force_password = true;
 			break;
 
-		case 's':
+		case 'r':
 			if (config->force_password)
-				print_error_exit("-w and -s are mutually exclusive");
+				print_error_exit("-w and -r are mutually exclusive");
 
 			config->force_key = true;
 			break;
@@ -800,7 +805,7 @@ static int parse_cli(int argc, char **argv)
 			} else if (!current_config->force_password && is_utf8(argv[optind])) {
 				fprintf(stderr, "\"%s\" does not seem to be a file. Trying password authentication.\n",
 					argv[optind]);
-				fprintf(stderr, "Use -s to force key authentication or -w to silence this warning");
+				fprintf(stderr, "Use -r to force key authentication or -w to silence this warning");
 				current_config->ssh_password = argv[optind];
 
 			} else if (current_config->force_password && !is_utf8(argv[optind])) {
