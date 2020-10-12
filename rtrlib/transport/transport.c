@@ -42,6 +42,11 @@ inline const char *tr_ident(struct tr_socket *sock)
 	return sock->ident_fp(sock->socket);
 }
 
+inline int tr_get_fd(const struct tr_socket *socket)
+{
+	return socket->get_fd_fp(socket->socket);
+}
+
 int tr_send_all(const struct tr_socket *socket, const void *pdu, const size_t len, const time_t timeout)
 {
 	unsigned int total_send = 0;
@@ -85,3 +90,4 @@ int tr_recv_all(const struct tr_socket *socket, const void *pdu, const size_t le
 	}
 	return total_recv;
 }
+

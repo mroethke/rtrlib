@@ -93,18 +93,35 @@ int tr_ssh_open(void *socket)
 	int ret;
 
 	do {
+		SSH_DBG1("tr_ssh_open: calling ssh_connect", ssh_socket);
 		ret = ssh_connect(ssh_socket->session);
+		SSH_DBG1("tr_ssh_open: called ssh_connect", ssh_socket);
+		SSH_DBG("blocking_flush: %d", ssh_socket, ssh_blocking_flush(ssh_socket->session, -1));
+		int flags = ssh_get_poll_flags(ssh_socket->session);
+		SSH_DBG("Flags: 0x%X", ssh_socket, flags);
+		if (flags & SSH_READ_PENDING) {
+			SSH_DBG1("pending read", ssh_socket);
+		}
+		if (flags & SSH_WRITE_PENDING) {
+			SSH_DBG1("pending write", ssh_socket);
+		}
 
 		if (ret == SSH_ERROR) {
 			SSH_DBG("%s: opening SSH connection failed", ssh_socket, __func__);
 			goto error;
 		} else if (ret == SSH_AGAIN) {
 			socket_t fd = ssh_get_fd(ssh_socket->session);
+			SSH_DBG("fd: %d", ssh_socket, fd);
 
 			fd_set rfds;
+			fd_set wfds;
 
 			FD_ZERO(&rfds);
-			FD_SET(fd, &rfds);
+			FD_ZERO(&wfds);
+			if (flags & SSH_READ_PENDING)
+				FD_SET(fd, &rfds);
+			if (flags & SSH_WRITE_PENDING)
+				FD_SET(fd, &wfds);
 			struct timeval timeout = {.tv_sec = ssh_socket->config.connect_timeout, .tv_usec = 0};
 			int oldcancelstate;
 
@@ -114,7 +131,8 @@ int tr_ssh_open(void *socket)
 			 * Since local resources have all been freed this should be safe.
 			 */
 			pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, &oldcancelstate);
-			int sret = select(fd + 1, &rfds, NULL, NULL, &timeout);
+			int sret = select(fd + 1, &rfds, &wfds, NULL, &timeout);
+			SSH_DBG1("Called select", ssh_socket);
 
 			pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldcancelstate);
 
@@ -130,6 +148,8 @@ int tr_ssh_open(void *socket)
 	} while (ret != SSH_OK);
 
 	ssh_set_blocking(ssh_socket->session, 1);
+		int flags = ssh_get_poll_flags(ssh_socket->session);
+		SSH_DBG("Flags: 0x%X", ssh_socket, flags);
 
 	// check server identity
 #if LIBSSH_VERSION_MAJOR > 0 || LIBSSH_VERSION_MINOR > 8

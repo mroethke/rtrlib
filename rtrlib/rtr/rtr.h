@@ -77,6 +77,9 @@ enum rtr_socket_state {
 
 	/** RTR Socket has not been started yet. Initial state after rtr_init */
 	RTR_CLOSED,
+
+	/** dummy state to have a automatic count of the states */
+	RTR_STATE_COUNT,
 };
 
 struct rtr_socket;

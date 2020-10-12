@@ -103,5 +103,7 @@ int tr_recv_all(const struct tr_socket *socket, const void *buf, const size_t le
  */
 const char *tr_ident(struct tr_socket *socket);
 
+int tr_get_fd(const struct tr_socket *socket);
+
 #endif
 /** @} */

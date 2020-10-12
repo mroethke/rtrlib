@@ -21,6 +21,9 @@
 #include <pthread.h>
 #include <signal.h>
 #include <unistd.h>
+#include <poll.h>
+#include <errno.h>
+#include <string.h>
 
 static void rtr_purge_outdated_records(struct rtr_socket *rtr_socket);
 static void *rtr_fsm_start(struct rtr_socket *rtr_socket);
@@ -106,6 +109,7 @@ void rtr_purge_outdated_records(struct rtr_socket *rtr_socket)
 	}
 }
 
+
 /* WARNING: This Function has cancelable sections*/
 void *rtr_fsm_start(struct rtr_socket *rtr_socket)
 {
@@ -127,17 +131,48 @@ void *rtr_fsm_start(struct rtr_socket *rtr_socket)
 			// old key_entry could exists in the spki_table, check if they are too old and must be removed
 			rtr_purge_outdated_records(rtr_socket);
 
-			if (tr_open(rtr_socket->tr_socket) == TR_ERROR) {
-				rtr_change_socket_state(rtr_socket, RTR_ERROR_TRANSPORT);
-			} else if (rtr_socket->request_session_id) {
-				// change to state RESET, if socket doesn't have a session_id
-				rtr_change_socket_state(rtr_socket, RTR_RESET);
-			} else {
-				// if we already have a session_id, send a serial query and start to sync
-				if (rtr_send_serial_query(rtr_socket) == RTR_SUCCESS)
-					rtr_change_socket_state(rtr_socket, RTR_SYNC);
-				else
+			while (true) {
+				RTR_DBG1("Iter");
+				int ret = tr_open(rtr_socket->tr_socket);
+
+				if (ret == TR_ERROR) {
+					rtr_change_socket_state(rtr_socket, RTR_ERROR_TRANSPORT);
+
+				} else if (ret == TR_INPROGRESS) {
+					struct pollfd fds[1];
+
+					fds[0].fd = tr_get_fd(rtr_socket->tr_socket);
+					fds[0].events = POLLOUT;
+
+					int poll_ret = poll(fds, 1, -1);
+					if (poll_ret > 0) {
+						continue;
+					} else {
+						RTR_DBG("Poll failed with error: %s", strerror(errno));
+						rtr_change_socket_state(rtr_socket, RTR_ERROR_FATAL);
+						break;
+					}
+
+				} else if (ret == TR_SUCCESS && rtr_socket->request_session_id) {
+					// change to state RESET, if socket doesn't have a session_id
+					rtr_change_socket_state(rtr_socket, RTR_RESET);
+
+					break;
+
+				} else if (ret == TR_SUCCESS) {
+					// if we already have a session_id, send a serial query and start to sync
+					if (rtr_send_serial_query(rtr_socket) == RTR_SUCCESS)
+						rtr_change_socket_state(rtr_socket, RTR_SYNC);
+					else
+						rtr_change_socket_state(rtr_socket, RTR_ERROR_FATAL);
+
+					break;
+
+				} else {
+					RTR_DBG1("Unkown state reached. Resetting.");
 					rtr_change_socket_state(rtr_socket, RTR_ERROR_FATAL);
+					break;
+				}
 			}
 		}
 

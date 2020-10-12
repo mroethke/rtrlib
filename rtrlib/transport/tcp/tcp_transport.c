@@ -34,11 +34,26 @@
 	} while (0)
 #define TCP_DBG1(a, sock) TCP_DBG(a, sock)
 
+
+enum connect_state {
+	CONNECT_INIT,
+	CONNECT_STARTED,
+	CONNECT_DONE,
+	CONNECT_STATE_COUNT,
+};
+
 struct tr_tcp_socket {
 	int socket;
 	struct tr_tcp_config config;
 	char *ident;
+	enum connect_state connect_state;
 };
+
+static int get_socket_error(int socket);
+
+typedef int connect_state_func(struct tr_tcp_socket *socket);
+
+
 
 static int tr_tcp_open(void *tr_tcp_sock);
 static void tr_tcp_close(void *tr_tcp_sock);
@@ -46,6 +61,7 @@ static void tr_tcp_free(struct tr_socket *tr_sock);
 static int tr_tcp_recv(const void *tr_tcp_sock, void *pdu, const size_t len, const time_t timeout);
 static int tr_tcp_send(const void *tr_tcp_sock, const void *pdu, const size_t len, const time_t timeout);
 static const char *tr_tcp_ident(void *socket);
+static int tr_tcp_get_fd(void *socket);
 
 static int set_socket_blocking(int socket)
 {
@@ -88,12 +104,9 @@ static int get_socket_error(int socket)
 	return result;
 }
 
-/* WARNING: This function has cancelable sections! */
-int tr_tcp_open(void *tr_socket)
-{
+static int do_connect_init(struct tr_tcp_socket *tcp_socket) {
 	int rtval = TR_ERROR;
 	int tcp_rtval = 0;
-	struct tr_tcp_socket *tcp_socket = tr_socket;
 	const struct tr_tcp_config *config = &tcp_socket->config;
 
 	assert(tcp_socket->socket == -1);
@@ -108,14 +121,17 @@ int tr_tcp_open(void *tr_socket)
 	hints.ai_flags = AI_ADDRCONFIG;
 
 	if (config->new_socket) {
+		TCP_DBG("Trying to get socket from callback", tcp_socket);
 		tcp_socket->socket = (*config->new_socket)(config->data);
 		if (tcp_socket->socket <= 0) {
 			TCP_DBG("Couldn't establish TCP connection, %s",
 				tcp_socket, strerror(errno));
 			goto end;
 		}
-	}
-	if (tcp_socket->socket < 0) {
+
+		rtval = TR_SUCCESS;
+
+	} else {
 		tcp_rtval = getaddrinfo(config->host, config->port, &hints, &res);
 		if (tcp_rtval != 0) {
 			if (tcp_rtval == EAI_SYSTEM) {
@@ -150,9 +166,6 @@ int tr_tcp_open(void *tr_socket)
 				TCP_DBG("Socket bind failed, %s", tcp_socket, strerror(errno));
 				goto end;
 			}
-
-			freeaddrinfo(bind_addrinfo);
-			bind_addrinfo = NULL;
 		}
 
 		if (set_socket_non_blocking(tcp_socket->socket) == TR_ERROR) {
@@ -161,60 +174,18 @@ int tr_tcp_open(void *tr_socket)
 		}
 
 		if (connect(tcp_socket->socket, res->ai_addr, res->ai_addrlen) == -1 && errno != EINPROGRESS) {
-			TCP_DBG("Couldn't establish TCP connection, %s",
-				tcp_socket, strerror(errno));
-			goto end;
-		}
-
-		freeaddrinfo(res);
-		res = NULL;
-
-		fd_set wfds;
-
-		FD_ZERO(&wfds);
-		FD_SET(tcp_socket->socket, &wfds);
-
-		struct timeval timeout = {.tv_sec = tcp_socket->config.connect_timeout, .tv_usec = 0};
-		int oldcancelstate;
-
-		/* Enable cancellability for the select call
-		 * to prevent rtr_stop from blocking for a long time.
-		 * It must be the only blocking call in this function.
-		 * Since local resources have all been freed this should be safe.
-		 */
-		pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, &oldcancelstate);
-		int ret = select(tcp_socket->socket + 1, NULL, &wfds, NULL, &timeout);
-
-		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldcancelstate);
-
-		if (ret < 0) {
-			TCP_DBG("Could not select tcp socket, %s", tcp_socket, strerror(errno));
-			goto end;
-
-		} else if (ret == 0) {
-			TCP_DBG("Could not establish TCP connection in time", tcp_socket);
-			goto end;
-		}
-
-		int socket_error = get_socket_error(tcp_socket->socket);
-
-		if (socket_error == TR_ERROR) {
-			TCP_DBG("Could not get socket error, %s", tcp_socket, strerror(errno));
-			goto end;
-
-		} else if (socket_error > 0) {
-			TCP_DBG("Could not establish TCP connection, %s", tcp_socket, strerror(socket_error));
-			goto end;
-		}
-
-		if (set_socket_blocking(tcp_socket->socket) == TR_ERROR) {
-			TCP_DBG("Could not set socket to blocking, %s", tcp_socket, strerror(errno));
-			goto end;
+			if (errno == EINPROGRESS) {
+				TCP_DBG1("Connection attempt in progress", tcp_socket);
+				rtval = TR_INPROGRESS;
+			} else {
+				TCP_DBG("Couldn't establish TCP connection, %s",
+					tcp_socket, strerror(errno));
+				goto end;
+			}
+		} else {
+			rtval = TR_SUCCESS;
 		}
 	}
-
-	TCP_DBG1("Connection established", tcp_socket);
-	rtval = TR_SUCCESS;
 
 end:
 	if (res)
@@ -222,9 +193,71 @@ end:
 
 	if (bind_addrinfo)
 		freeaddrinfo(bind_addrinfo);
-	if (rtval == -1)
-		tr_tcp_close(tr_socket);
 	return rtval;
+}
+
+static int do_connect_started(struct tr_tcp_socket *tcp_socket) {
+	int ret = get_socket_error(tcp_socket->socket);
+
+	if (ret == TR_ERROR) {
+		TCP_DBG("Could not get socket error, %s", tcp_socket, strerror(errno));
+		return TR_ERROR;
+	} else if (ret > 0) {
+		TCP_DBG("Could not establish TCP connection, %s", tcp_socket, strerror(ret));
+		return TR_ERROR;
+	}
+
+	if (set_socket_blocking(tcp_socket->socket) == TR_ERROR) {
+		TCP_DBG("Could not set socket to non blocking, %s", tcp_socket, strerror(errno));
+		return TR_ERROR;
+	}
+
+
+
+	TCP_DBG1("Connection established", tcp_socket);
+
+	return TR_SUCCESS;
+}
+
+static int do_connect_done(struct tr_tcp_socket *socket __attribute__((unused))) {
+	return TR_SUCCESS;
+}
+
+connect_state_func* state_table[CONNECT_STATE_COUNT] = {
+	do_connect_init,
+	do_connect_started,
+	do_connect_done,
+};
+
+/* WARNING: This function has cancelable sections! */
+int tr_tcp_open(void *tr_socket)
+{
+	struct tr_tcp_socket *tcp_socket = tr_socket;
+	int retval = state_table[tcp_socket->connect_state](tcp_socket);
+
+	if (retval == TR_SUCCESS) {
+
+		switch (tcp_socket->connect_state) {
+			case CONNECT_INIT:
+				tcp_socket->connect_state = CONNECT_STARTED;
+				retval = TR_INPROGRESS;
+				break;
+
+			case CONNECT_STARTED:
+				tcp_socket->connect_state = CONNECT_DONE;
+				break;
+
+			case CONNECT_DONE:
+				break;
+
+			default:
+				TCP_DBG1("Illegal connect state reached", tcp_socket);
+				return TR_ERROR;
+
+		}
+	}
+
+	return retval;
 }
 
 void tr_tcp_close(void *tr_tcp_sock)
@@ -335,6 +368,11 @@ const char *tr_tcp_ident(void *socket)
 	return sock->ident;
 }
 
+int tr_tcp_get_fd(void *socket) {
+	struct tr_tcp_socket *tcp_socket = socket;
+	return tcp_socket->socket;
+}
+
 RTRLIB_EXPORT int tr_tcp_init(const struct tr_tcp_config *config, struct tr_socket *socket)
 {
 	socket->close_fp = &tr_tcp_close;
@@ -343,6 +381,7 @@ RTRLIB_EXPORT int tr_tcp_init(const struct tr_tcp_config *config, struct tr_sock
 	socket->recv_fp = &tr_tcp_recv;
 	socket->send_fp = &tr_tcp_send;
 	socket->ident_fp = &tr_tcp_ident;
+	socket->get_fd_fp = &tr_tcp_get_fd;
 
 	socket->socket = lrtr_malloc(sizeof(struct tr_tcp_socket));
 	struct tr_tcp_socket *tcp_socket = socket->socket;
@@ -363,6 +402,7 @@ RTRLIB_EXPORT int tr_tcp_init(const struct tr_tcp_config *config, struct tr_sock
 	tcp_socket->ident = NULL;
 	tcp_socket->config.data = config->data;
 	tcp_socket->config.new_socket = config->new_socket;
+	tcp_socket->connect_state = CONNECT_INIT;
 
 	return TR_SUCCESS;
 }

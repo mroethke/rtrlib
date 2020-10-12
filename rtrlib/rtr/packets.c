@@ -650,6 +650,7 @@ error:
 	return RTR_ERROR;
 }
 
+
 static int rtr_handle_error_pdu(struct rtr_socket *rtr_socket, const void *buf)
 {
 	RTR_DBG1("Error PDU received"); // TODO: append server ip & port
