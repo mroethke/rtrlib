@@ -105,5 +105,7 @@ const char *tr_ident(struct tr_socket *socket);
 
 int tr_get_fd(const struct tr_socket *socket);
 
+int tr_get_poll_flags(const struct tr_socket *socket);
+
 #endif
 /** @} */

@@ -47,6 +47,11 @@ inline int tr_get_fd(const struct tr_socket *socket)
 	return socket->get_fd_fp(socket->socket);
 }
 
+inline int tr_get_poll_flags(const struct tr_socket *socket)
+{
+	return socket->get_poll_flags_fp(socket->socket);
+}
+
 int tr_send_all(const struct tr_socket *socket, const void *pdu, const size_t len, const time_t timeout)
 {
 	unsigned int total_send = 0;

@@ -26,6 +26,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <poll.h>
 
 #define TCP_DBG(fmt, sock, ...)                                                                            \
 	do {                                                                                               \
@@ -62,6 +63,7 @@ static int tr_tcp_recv(const void *tr_tcp_sock, void *pdu, const size_t len, con
 static int tr_tcp_send(const void *tr_tcp_sock, const void *pdu, const size_t len, const time_t timeout);
 static const char *tr_tcp_ident(void *socket);
 static int tr_tcp_get_fd(void *socket);
+int tr_tcp_get_poll_flags(void *socket);
 
 static int set_socket_blocking(int socket)
 {
@@ -373,6 +375,14 @@ int tr_tcp_get_fd(void *socket) {
 	return tcp_socket->socket;
 }
 
+int tr_tcp_get_poll_flags(void *socket) {
+	struct tr_tcp_socket *tcp_socket = socket;
+	if (tcp_socket->connect_state == CONNECT_STARTED)
+		return POLLOUT;
+	else
+		return 0;
+}
+
 RTRLIB_EXPORT int tr_tcp_init(const struct tr_tcp_config *config, struct tr_socket *socket)
 {
 	socket->close_fp = &tr_tcp_close;
@@ -382,6 +392,7 @@ RTRLIB_EXPORT int tr_tcp_init(const struct tr_tcp_config *config, struct tr_sock
 	socket->send_fp = &tr_tcp_send;
 	socket->ident_fp = &tr_tcp_ident;
 	socket->get_fd_fp = &tr_tcp_get_fd;
+	socket->get_poll_flags_fp = &tr_tcp_get_poll_flags;
 
 	socket->socket = lrtr_malloc(sizeof(struct tr_tcp_socket));
 	struct tr_tcp_socket *tcp_socket = socket->socket;

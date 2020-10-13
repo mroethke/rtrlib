@@ -94,6 +94,8 @@ typedef const char *(*tr_ident_fp)(void *socket);
 
 typedef int (*tr_get_fd_fp)(void *socket);
 
+typedef int (*tr_get_poll_flags_fp)(void *socket);
+
 /**
  * @brief A transport socket datastructure.
  *
@@ -113,6 +115,7 @@ struct tr_socket {
 	tr_recv_fp recv_fp;
 	tr_ident_fp ident_fp;
 	tr_get_fd_fp get_fd_fp;
+	tr_get_poll_flags_fp get_poll_flags_fp;
 };
 
 #endif

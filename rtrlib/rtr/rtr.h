@@ -43,6 +43,9 @@ enum rtr_interval_mode {
  * @brief States of the RTR socket.
  */
 enum rtr_socket_state {
+	/** Socket is Initializing */
+	RTR_INIT,
+
 	/** Socket is establishing the transport connection. */
 	RTR_CONNECTING,
 

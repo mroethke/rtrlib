@@ -121,58 +121,63 @@ void *rtr_fsm_start(struct rtr_socket *rtr_socket)
 
 	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldcancelstate);
 
-	rtr_socket->state = RTR_CONNECTING;
+	rtr_socket->state = RTR_INIT;
 	while (1) {
+
 		if (rtr_socket->state == RTR_CONNECTING) {
-			RTR_DBG1("State: RTR_CONNECTING");
+			int flags = tr_get_poll_flags(rtr_socket->tr_socket);
+			if (flags) {
+				struct pollfd fds[1];
+				fds[0].fd = tr_get_fd(rtr_socket->tr_socket);
+				fds[0].events = flags;
+
+				int poll_ret = poll(fds, 1, -1);
+
+				if (poll_ret < 0) {
+					RTR_DBG("Poll failed with error: %s", strerror(errno));
+					rtr_change_socket_state(rtr_socket, RTR_ERROR_FATAL);
+				} else if (poll_ret == 0) {
+					RTR_DBG("No socket ready");
+					continue;
+				}
+			}
+		}
+
+		if (rtr_socket->state == RTR_INIT) {
+			RTR_DBG1("State: RTR_INIT");
 			rtr_socket->has_received_pdus = false;
 
 			// old pfx_record could exists in the pfx_table, check if they are too old and must be removed
 			// old key_entry could exists in the spki_table, check if they are too old and must be removed
 			rtr_purge_outdated_records(rtr_socket);
 
-			while (true) {
-				RTR_DBG1("Iter");
-				int ret = tr_open(rtr_socket->tr_socket);
+			rtr_change_socket_state(rtr_socket, RTR_CONNECTING);
 
-				if (ret == TR_ERROR) {
-					rtr_change_socket_state(rtr_socket, RTR_ERROR_TRANSPORT);
+		} else if (rtr_socket->state == RTR_CONNECTING) {
+			RTR_DBG1("Iter");
+			int ret = tr_open(rtr_socket->tr_socket);
 
-				} else if (ret == TR_INPROGRESS) {
-					struct pollfd fds[1];
+			if (ret == TR_ERROR) {
+				rtr_change_socket_state(rtr_socket, RTR_ERROR_TRANSPORT);
 
-					fds[0].fd = tr_get_fd(rtr_socket->tr_socket);
-					fds[0].events = POLLOUT;
+			} else if (ret == TR_INPROGRESS) {
+				RTR_DBG1("Connection not yes establihsed. Waiting.");
 
-					int poll_ret = poll(fds, 1, -1);
-					if (poll_ret > 0) {
-						continue;
-					} else {
-						RTR_DBG("Poll failed with error: %s", strerror(errno));
-						rtr_change_socket_state(rtr_socket, RTR_ERROR_FATAL);
-						break;
-					}
+			} else if (ret == TR_SUCCESS && rtr_socket->request_session_id) {
+				// change to state RESET, if socket doesn't have a session_id
+				rtr_change_socket_state(rtr_socket, RTR_RESET);
 
-				} else if (ret == TR_SUCCESS && rtr_socket->request_session_id) {
-					// change to state RESET, if socket doesn't have a session_id
-					rtr_change_socket_state(rtr_socket, RTR_RESET);
 
-					break;
-
-				} else if (ret == TR_SUCCESS) {
-					// if we already have a session_id, send a serial query and start to sync
-					if (rtr_send_serial_query(rtr_socket) == RTR_SUCCESS)
-						rtr_change_socket_state(rtr_socket, RTR_SYNC);
-					else
-						rtr_change_socket_state(rtr_socket, RTR_ERROR_FATAL);
-
-					break;
-
-				} else {
-					RTR_DBG1("Unkown state reached. Resetting.");
+			} else if (ret == TR_SUCCESS) {
+				// if we already have a session_id, send a serial query and start to sync
+				if (rtr_send_serial_query(rtr_socket) == RTR_SUCCESS)
+					rtr_change_socket_state(rtr_socket, RTR_SYNC);
+				else
 					rtr_change_socket_state(rtr_socket, RTR_ERROR_FATAL);
-					break;
-				}
+
+			} else {
+				RTR_DBG1("Unkown state reached. Resetting.");
+				rtr_change_socket_state(rtr_socket, RTR_ERROR_FATAL);
 			}
 		}
 
