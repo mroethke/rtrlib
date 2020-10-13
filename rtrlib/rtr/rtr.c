@@ -126,6 +126,7 @@ void *rtr_fsm_start(struct rtr_socket *rtr_socket)
 
 		if (rtr_socket->state == RTR_CONNECTING) {
 			int flags = tr_get_poll_flags(rtr_socket->tr_socket);
+			RTR_DBG("flags: %d", flags);
 			if (flags) {
 				struct pollfd fds[1];
 				fds[0].fd = tr_get_fd(rtr_socket->tr_socket);
@@ -161,7 +162,7 @@ void *rtr_fsm_start(struct rtr_socket *rtr_socket)
 				rtr_change_socket_state(rtr_socket, RTR_ERROR_TRANSPORT);
 
 			} else if (ret == TR_INPROGRESS) {
-				RTR_DBG1("Connection not yes establihsed. Waiting.");
+				RTR_DBG1("Connection not yet establihsed. Waiting.");
 
 			} else if (ret == TR_SUCCESS && rtr_socket->request_session_id) {
 				// change to state RESET, if socket doesn't have a session_id

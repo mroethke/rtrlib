@@ -225,7 +225,7 @@ static int do_connect_done(struct tr_tcp_socket *socket __attribute__((unused)))
 	return TR_SUCCESS;
 }
 
-connect_state_func* state_table[CONNECT_STATE_COUNT] = {
+static connect_state_func* state_table[CONNECT_STATE_COUNT] = {
 	do_connect_init,
 	do_connect_started,
 	do_connect_done,
@@ -254,7 +254,7 @@ int tr_tcp_open(void *tr_socket)
 
 			default:
 				TCP_DBG1("Illegal connect state reached", tcp_socket);
-				return TR_ERROR;
+				retval = TR_ERROR;
 
 		}
 	}
@@ -270,6 +270,7 @@ void tr_tcp_close(void *tr_tcp_sock)
 		close(tcp_socket->socket);
 	TCP_DBG1("Socket closed", tcp_socket);
 	tcp_socket->socket = -1;
+	tcp_socket->connect_state = CONNECT_INIT;
 }
 
 void tr_tcp_free(struct tr_socket *tr_sock)
